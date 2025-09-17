@@ -5,9 +5,9 @@ Hi, my name is Eveline! I’m a Digital Media graduate student at Baruch College
 
 I previously competed as a Division 1 tennis player during my undergraduate studies, and now I’m pursuing a career in digital marketing.  
 
-- 🎓 M.S. in Digital Media, Baruch College  
-- 🎾 Former Division 1 Student-Athlete  
-- 💼 Digital Marketer with experience in social media management 
+-  M.S. in Digital Media, Baruch College  
+-  Former Division 1 Student-Athlete  
+-  Digital Marketer with experience in social media management 
 
 ```{r}
 #| include: false
@@ -15,3 +15,9 @@ I previously competed as a Division 1 tennis player during my undergraduate stud
 ```
 --------------
 Last Updated: `r format(Sys.time(), "%A %m %d, %Y at %H:%M%p")`
+
+Step 3: Make sure your homework (website files) is inside
+
+Your notebook must have a file called index.html (this is like the cover page of your website).
+
+If it’s empty, you can create a tiny file with these words inside:
