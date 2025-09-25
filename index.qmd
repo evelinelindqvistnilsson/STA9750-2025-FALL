@@ -95,7 +95,6 @@ format:
   <div class="dot"></div>
 </div>
 
-
 ```{r}
 #| include: false
 1+1
