@@ -18,12 +18,12 @@ execute:
   echo: true
 ---
 
-![New York City](images/new_york.jpeg)
+```{r}
+```{r, echo=FALSE, out.width="80%", fig.align='center'}
+knitr::include_graphics("~/STA9750-2025FALL/new york.jpeg")
 
 
-
-
-
+```
 
 ##  Introduction
 
@@ -295,14 +295,24 @@ species_col <- if (length(species_candidates) > 0) {
 **1. Which council district has the most trees? **
 
 ```{r}
-library(dplyr)
-library(sf)
+# drop geometry for faster summaries and create a nice district name
+tree_attrs <- trees_with_district |>
+  st_drop_geometry() |>
+  mutate(
+    district_name = paste(borough, "District", CounDist)
+  )
 
-trees <- read.csv("path/to/your/Forestry_Tree_Points.csv")
+# 1. Which council district has the most trees?
 
-# If your dataset has latitude and longitude columns
-trees_sf <- st_as_sf(trees, coords = c("longitude", "latitude"), crs = 4326)
+q1_most_trees <- tree_attrs |>
+group_by(CounDist, borough, district_name) |>
+summarise(n_trees = n(), .groups = "drop") |>
+arrange(desc(n_trees))
 
+q1_most_trees_top <- q1_most_trees |>
+slice_max(n_trees, n = 1, with_ties = FALSE)
+
+q1_most_trees_top
 ```
 
 ::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #007BFF; padding:10px;"}
@@ -443,77 +453,6 @@ closest_tree_tidy
 Gleditsia triacanthos var. inermis Thornless honeylocust tree is closest to Baruch's campus
 :::
 
-##  Extra Credit: Interactive Map & Additional Parks Data
-
-
-
-##  NYC Parks Proposal: Reviving the Canopy in Brooklyn’s Council District 42
-
-Strengthening Brooklyn’s Urban Forest: Council District 42
-
-Brooklyn’s Council District 42 faces a pressing challenge: a significant portion of its street trees are in poor condition. Analysis of NYC’s street tree dataset reveals tne of the highest rates among all city council districts. While other districts, like Staten Island’s District 50 or Manhattan’s District 10, host more trees overall, their mortality rates are considerably lower. This indicates a clear need for targeted intervention in District 42.
-
-Project Overview: “Reviving the Urban Canopy”
-
-Purpose: Enhance the health, safety, and beauty of Brooklyn’s streets by reducing tree mortality and expanding green coverage.
-
-**Three-Year Goals:**
-
-Replace 500 dead or critically endangered trees.
-
-Plant 800 new trees in areas with sparse greenery.
-
-Lower the dead-tree rate to under 10% within five years.
-
-**Visual Insights**
-District Map Highlight
-
-A detailed map of District 42 shows all street trees as colored points: green for healthy trees and red for dead ones. This visual highlights areas with high tree mortality, helping planners prioritize locations for maintenance and planting.
-
-**Comparative Tree Analysis**
-
-```{r}
-
-```
-A bar chart illustrates both total tree numbers and the fraction of dead trees for several districts:
-
-Brooklyn District 42 (focus)
-
-Staten Island District 50 (many trees, low mortality)
-
-Manhattan District 10 (dense canopy, healthier trees)
-
-Manhattan District 2 (Baruch College area)
-
-This comparison demonstrates that District 42 has a disproportionally high rate of tree loss compared to other well-planted districts, emphasizing the urgency of intervention.
-
-**Recommended Actions**
-
-Tree Removal & Replacement: Focus on streets or blocks with clusters of dead trees.
-
-Replanting Programs: Use species resilient to urban pollution and climate stress.
-
-Tree Risk Assessments: Inspect large or vulnerable trees to prevent accidents.
-
-Community Engagement: Organize a “Giving Tree Day” to educate and involve local residents in caring for new trees.
-
-**Strategic Importance**
-
-District 42 is not the district with the most trees, but it has one of the highest mortality rates. Clustered areas of dead trees compromise street aesthetics, shade availability, and public safety. By focusing resources here, we can rapidly enhance the urban canopy, improve environmental quality, and align the district’s tree health with healthier districts like Staten Island 50, Manhattan 10, and Manhattan 2.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # NYC Parks Proposal: Reviving the Canopy in Brooklyn’s Council District 42
 
 ## Strengthening Brooklyn’s Urban Forest: Council District 42
@@ -550,7 +489,7 @@ top_dead <- dead_counts %>%
   slice_max(order_by = n_dead, n = 5)
 
 top_dead
-```
+```{r}
 ### District Map Highlight
 A detailed map of **District 42** shows all street trees as colored points:  
 - Healthy trees (green)  
@@ -573,4 +512,90 @@ This visual highlights areas with **high tree mortality**, helping planners prio
 | Manhattan 2 (Baruch) | Moderate    | Moderate       |
 
 This comparison shows that District 42 has a disproportionately high tree loss, emphasizing the urgency of intervention.
+
+This comparison demonstrates that District 42 has a disproportionally high rate of tree loss compared to other well-planted districts, emphasizing the urgency of intervention.
+
+# 🌳 Forestry Recommendations – District 42
+
+## Recommended Actions
+
+<div style="padding:5px; border-left:5px solid green; background:#f0f9f0;">
+<b>Tree Removal & Replacement:</b> Target streets or blocks with clusters of dead trees.<br>
+<b>Replanting Programs:</b> Introduce species resilient to urban pollution and climate stress.<br>
+<b>Tree Risk Assessments:</b> Inspect large or vulnerable trees to prevent accidents.<br>
+<b>Community Engagement:</b> Organize a <b>“Giving Tree Day”</b> to educate and involve residents in caring for new trees.
+</div>
+
+## Strategic Importance
+
+District 42 may not have the most trees, but it has **one of the highest mortality rates**. Clusters of dead trees impact:  
+
+-  **Street aesthetics**  
+-  **Shade availability**  
+- ️ **Public safety**  
+
+By focusing resources here, we can **rapidly enhance the urban canopy**, improve environmental quality, and align District 42’s tree health with **healthier districts** like:  
+
+- Staten Island 50 
+- Manhattan 10 
+- Manhattan 2
+
+
+
+<style>
+body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+}
+
+h1, h2 {
+    color: #2c3e50;
+}
+
+.audio-player {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    margin: 20px 0;
+}
+
+audio {
+    width: 100%;
+}
+</style>
+
+  
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My NYC Page</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    /* Header with NYC image */
+    header {
+      width: 100%;
+      height: 300px; /* adjust height as you like */
+      background: url('nyc.jpg') no-repeat center center;
+      background-size: cover;
+    }
+  </style>
+</head>
+<body>
+
+
+
+
+
+
+
+
 
