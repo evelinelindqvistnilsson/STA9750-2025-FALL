@@ -1,0 +1,903 @@
+---
+title: "Mini-Project 04 - Just the Fact(-Check)s, Ma’am!"
+author: "Eveline Lindqvist Nilsson"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+format:
+  html:
+    theme: readable
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+editor: visual
+execute:
+  warning: false
+  message: false
+  echo: true
+  
+---
+
+
+```{r}
+knitr::include_graphics("~/Documents/GitHub/STA9750-2025-FALL/fact-fake-blocks-spinning-m.jpg")
+### BLS CES Data
+```
+
+### Introduction
+This project focuses on performing a “fact check” of claims regarding the Bureau of Labor Statistics’ monthly employment report, often referred to as the “jobs number.” The firing of BLS Commissioner Dr. Erika McEntarfer in August 2025 caused significant debate about the accuracy and reliability of the nation’s employment data.Introduction
+
+This project focuses on performing a “fact check” of claims regarding the Bureau of Labor Statistics’ monthly employment report, often referred to as the “jobs number.” The firing of BLS Commissioner Dr. Erika McEntarfer in August 2025 caused significant debate about the accuracy and reliability of the nation’s employment data.
+
+##  Data Acquisition
+I started by downloading the dataset from the course materials so I could work with the raw data for the analysis.
+
+### BLS CES Data
+```{r}
+# Load required packages
+library(httr2)
+library(rvest)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(stringr)
+```
+
+```{r}
+# Task 1: Download Final CES Estimates
+# Total Nonfarm Employment (Seasonally Adjusted) from January 1979 to June 2025
+
+# Step 1: Create HTTP request to BLS data portal
+ces_request <- request("https://data.bls.gov/pdq/SurveyOutputServlet") |>
+  req_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") |>
+  req_body_form(
+    series_id = "CES0000000001",
+    years_option = "specific_years",
+    to_year = "2025",
+    from_year = "1979",
+    periods_option = "specific_periods",
+    periods = "M01",
+    periods = "M02",
+    periods = "M03",
+    periods = "M04",
+    periods = "M05",
+    periods = "M06",
+    periods = "M07",
+    periods = "M08",
+    periods = "M09",
+    periods = "M10",
+    periods = "M11",
+    periods = "M12"
+  )
+
+# Step 2: Perform the request
+ces_response <- ces_request |> req_perform()
+
+# Step 3: Extract and parse the HTML - get ALL tables
+html_content <- ces_response |> resp_body_html()
+all_tables <- html_content |> html_elements("table")
+
+# The data table is typically the second or third table
+ces_data <- all_tables[[2]] |> html_table()
+
+# Step 4: Clean and pivot the data
+ces_final <- ces_data |>
+  pivot_longer(cols = -Year, names_to = "month", values_to = "level") |>
+  mutate(
+    date = ym(paste(Year, month)),
+    level = as.numeric(str_remove_all(level, ","))
+  ) |>
+  select(date, level) |>
+  drop_na()
+```
+
+### CES Revisions Data
+```{r}
+# Make the request
+revisions_request <- request("https://www.bls.gov/web/empsit/cesnaicsrev.htm") |>
+  req_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") |>
+  req_headers(
+    Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    `Accept-Language` = "en-US,en;q=0.5"
+  )
+
+revisions_response <- revisions_request |> req_perform()
+revisions_html <- revisions_response |> resp_body_html()
+all_tables <- revisions_html |> html_elements("table")
+
+# Get the big table (index 4)
+revisions_raw <- all_tables[[4]] |> html_table(header = FALSE)
+
+# Clean and process the data
+revisions_final <- revisions_raw |>
+  # Filter to only rows that start with month abbreviations (Jan, Feb, etc.)
+  filter(str_detect(X1, "^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\.")) |>
+  # Select relevant columns: Month (X1), Year (X2), and revision columns
+  # Based on the structure, X4 appears to be "2nd-1st" (original) and X5 is "3rd-2nd" (final)
+  select(month = X1, year = X2, original = X4, final = X5) |>
+  # Clean up the data
+  mutate(
+    # Remove periods from month names
+    month = str_remove(month, "\\."),
+    # Parse year
+    year = as.numeric(year),
+    # Create date
+    date = ym(paste(year, month)),
+    # Convert original and final to numeric (removing commas and handling "")
+    original = as.numeric(str_remove_all(original, ",")),
+    final = as.numeric(str_remove_all(final, ",")),
+    # Calculate revision
+    revision = final - original
+  ) |>
+  # Select final columns
+  select(date, original, final, revision) |>
+  # Remove any rows with missing dates
+  drop_na(date) |>
+  # Filter to only 1979-2025
+  filter(year(date) >= 1979, year(date) <= 2025)
+
+
+```
+
+
+##  Task 3
+
+I explore the CES data using both summary statistics and visualizations. After joining the tables, I calculate key measures of revision size and patterns over the past 45 years and create several plots to show trends, extremes, and any seasonal differences in the revisions.
+
+```{r}
+# Join the two datasets
+ces_combined <- ces_final |>
+  left_join(revisions_final, by = "date") |>
+  mutate(
+    # Calculate the change in employment from previous month
+    level_change = level - lag(level),
+    # Calculate revision as percentage of final level
+    revision_pct = (revision / final) * 100,
+    # Calculate absolute revision percentage
+    abs_revision_pct = abs(revision_pct),
+    # Add year and month for grouping
+    year = year(date),
+    month = month(date, label = TRUE),
+    # Add decade
+    decade = floor(year / 10) * 10
+  )
+
+
+```
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+# Statistic 1 & 2: Largest positive and negative revisions
+extreme_revisions <- ces_combined |>
+  filter(!is.na(revision)) |>
+  arrange(desc(revision)) |>
+  slice(c(1, n())) |>
+  select(Date = date, `Revision (thousands)` = revision, `Employment Level` = level) |>
+  mutate(Type = c("Largest Positive", "Largest Negative"))
+
+extreme_revisions |>
+  kable(caption = "Largest Positive and Negative Revisions",
+        digits = 0,
+        format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE,
+                position = "left") |>
+  row_spec(0, bold = TRUE, color = "white", background = "#800080")
+```
+
+
+```{r}
+# Statistic 3: Average absolute revision by decade
+avg_revision_by_decade <- ces_combined |>
+  filter(!is.na(revision)) |>
+  group_by(Decade = decade) |>
+  summarize(
+    `Avg Absolute Revision` = mean(abs(revision), na.rm = TRUE),
+    `Median Absolute Revision` = median(abs(revision), na.rm = TRUE),
+    `Number of Months` = n()
+  ) |>
+  arrange(Decade)
+
+avg_revision_by_decade |>
+  kable(caption = "Average Absolute Revision by Decade",
+        digits = 1) |>
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "#4472C4") |>
+  column_spec(1, bold = TRUE)
+```
+
+```{r}
+# Statistic 4: Fraction of positive vs negative revisions
+revision_direction <- ces_combined |>
+  filter(!is.na(revision)) |>
+  summarize(
+    `Total Revisions` = n(),
+    `Positive` = sum(revision > 0, na.rm = TRUE),
+    `Negative` = sum(revision < 0, na.rm = TRUE),
+    `Zero` = sum(revision == 0, na.rm = TRUE),
+    `% Positive` = (Positive / `Total Revisions`) * 100,
+    `% Negative` = (Negative / `Total Revisions`) * 100
+  )
+
+revision_direction |>
+  kable(caption = "Revision Direction Summary",
+        digits = 1) |>
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "#ED7D31")
+```
+
+```{r}
+# Statistic 6: Which months have largest revisions?
+avg_revision_by_month <- ces_combined |>
+  filter(!is.na(revision)) |>
+  group_by(Month = month) |>
+  summarize(
+    `Avg Abs Revision` = mean(abs(revision), na.rm = TRUE),
+    `Median Abs Revision` = median(abs(revision), na.rm = TRUE),
+    `Count` = n()
+  ) |>
+  arrange(desc(`Avg Abs Revision`))
+
+avg_revision_by_month |>
+  kable(caption = "Average Absolute Revision by Month",
+        digits = 1) |>
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "#5B9BD5") |>
+  row_spec(1, bold = TRUE, background = "white")  # Highlight top month
+```
+
+```{r}
+# Statistic 7: Recent years summary
+recent_revisions <- ces_combined |>
+  filter(year >= 2020, !is.na(revision)) |>
+  summarize(
+    `Avg Revision` = mean(revision, na.rm = TRUE),
+    `Avg Abs Revision` = mean(abs(revision), na.rm = TRUE),
+    `Max Revision` = max(revision, na.rm = TRUE),
+    `Min Revision` = min(revision, na.rm = TRUE),
+    `% Positive` = sum(revision > 0) / n() * 100
+  )
+
+recent_revisions |>
+  kable(caption = "Recent Years (2020-2025) Revision Summary",
+        digits = 1) |>
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkgreen")
+```
+
+##  Data Visualizations
+
+**Visualization #1:** This chart shows how the total number of jobs grew from about 89 million in 1979 to around 159 million in 2025. You can see big drops during some tough times, like the early 90s recession, the financial crisis in 2008, and the pandemic in 2020. After these drops, the jobs numbers bounced back pretty fast.
+
+```{r}
+library(ggplot2)
+
+# Visualization 1: Employment level over time
+ggplot(ces_combined, aes(x = date, y = level)) +
+  geom_line(color = "purple", linewidth = 0.8) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Total Nonfarm Employment (Seasonally Adjusted)",
+    subtitle = "January 1979 - June 2025",
+    x = "Date",
+    y = "Employment Level (thousands)",
+    caption = "Source: Bureau of Labor Statistics, Current Employment Statistics"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+```
+
+**Visualization #2:** Here, we can see how the employment numbers were updated after they were first reported. Some revisions went up (green) and some went down (red). The biggest changes happened during big economic problems, like 2008 and 2020. Overall, there is no clear pattern that the revisions are always going up or always going down.
+
+```{r}
+# Visualization 2: Revisions over time
+ggplot(ces_combined |> filter(!is.na(revision)), 
+       aes(x = date, y = revision)) +
+  geom_col(aes(fill = revision > 0), alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray30") +
+  scale_fill_manual(
+    values = c("TRUE" = "darkgreen", "FALSE" = "red"),
+    labels = c("Negative", "Positive"),
+    name = "Revision Direction"
+  ) +
+  labs(
+    title = "CES Employment Revisions Over Time",
+    subtitle = "Difference between final (3rd) and original (1st) estimates",
+    x = "Date",
+    y = "Revision (thousands of jobs)",
+    caption = "Source: Bureau of Labor Statistics, Current Employment Statistics"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11),
+    legend.position = "bottom"
+  )
+```
+
+
+**Visualization #3:** This chart looks at revisions compared to the total number of jobs. Most of the time, the changes are small, but during economic shocks, they are bigger. The trend line shows that the size of revisions compared to total jobs has stayed mostly the same over the years.
+
+```{r}
+# Create the data needed for this plot
+avg_revision_pct_by_year <- ces_combined |>
+  filter(!is.na(abs_revision_pct)) |>
+  group_by(year) |>
+  summarize(
+    avg_abs_rev_pct = mean(abs_revision_pct, na.rm = TRUE),
+    median_abs_rev_pct = median(abs_revision_pct, na.rm = TRUE)
+  )
+
+# Visualization 3: Absolute revision percentage over time
+ggplot(avg_revision_pct_by_year |> filter(!is.na(avg_abs_rev_pct)), 
+       aes(x = year, y = avg_abs_rev_pct)) +
+  geom_line(color = "red", linewidth = 1) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.2, color = "blue") +
+  labs(
+    title = "Average Absolute Revision as Percentage of Employment",
+    subtitle = "Has revision accuracy improved over time?",
+    x = "Year",
+    y = "Average Absolute Revision (% of final employment level)",
+    caption = "Source: Bureau of Labor Statistics. Blue line shows smoothed trend."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+```
+
+
+**Visualization #4:** This chart shows that positive and negative revisions are almost equal. Most of them are very close to zero, which means that the changes are usually small. There is no strong bias to always revise numbers up or down.
+
+```{r}
+# Visualization 4: Distribution of revisions
+ggplot(ces_combined |> filter(!is.na(revision)), 
+       aes(x = revision)) +
+  geom_histogram(bins = 50, fill = "blue", alpha = 0.7, color = "black") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 1) +
+  labs(
+    title = "Distribution of CES Employment Revisions",
+    subtitle = "1979-2025",
+    x = "Revision (thousands of jobs)",
+    y = "Frequency (number of months)",
+    caption = "Source: Bureau of Labor Statistics. Red line indicates zero revision."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+```
+
+**Visualization #5:** This boxplot shows the size of revisions in each decade. You can see that the middle value (median) is almost always zero, and the spread of changes is similar over time. Even in the 2020s, the revisions are not extremely big compared to previous decades.
+
+```{r}
+# Visualization 5: Boxplot of revisions by decade
+ggplot(ces_combined |> filter(!is.na(revision), !is.na(decade)), 
+       aes(x = factor(decade), y = revision)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Distribution of CES Revisions by Decade",
+    subtitle = "Are revisions getting larger or smaller over time?",
+    x = "Decade",
+    y = "Revision (thousands of jobs)",
+    caption = "Source: Bureau of Labor Statistics"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+```
+
+**Visualization #6:** This chart shows the percentage of positive revisions. It goes up and down around 50%, which means sometimes there are more increases, sometimes more decreases, but no long-term trend to one side.
+
+```{r}
+# Create the data for this plot
+revision_summary_by_year <- ces_combined |>
+  filter(!is.na(revision)) |>
+  group_by(year) |>
+  summarize(
+    pct_positive = sum(revision > 0) / n() * 100,
+    pct_negative = sum(revision < 0) / n() * 100,
+    count = n()
+  )
+
+# Visualization 6: Positive vs negative revisions over time
+ggplot(revision_summary_by_year, aes(x = year, y = pct_positive)) +
+  geom_line(color = "darkblue", linewidth = 1) +
+  geom_point(color = "darkblue", size = 2) +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "gray50", linewidth = 1) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(
+    title = "Percentage of Positive Revisions by Year",
+    subtitle = "Are revisions systematically biased upward or downward?",
+    x = "Year",
+    y = "% Positive Revisions",
+    caption = "Source: Bureau of Labor Statistics. Dashed line at 50% indicates no bias."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+```
+
+
+##  Task 4
+
+To check whether the changes in CES data are really meaningful or just random, I ran some statistical tests using the infer package and regular R functions. These tests let us see if the patterns we notice in the data are actually significant or could have happened by chance.
+
+```{r}
+library(infer)
+library(knitr)
+library(kableExtra)
+
+# Add grouping variables for hypothesis tests
+ces_test_data <- ces_combined |>
+  filter(!is.na(revision)) |>
+  mutate(
+    # Time period groupings
+    post_2020 = year >= 2020,
+    post_2000 = year >= 2000,
+    
+    # Revision characteristics
+    is_negative = revision < 0,
+    is_positive = revision > 0,
+    is_large = abs(revision) > median(abs(revision), na.rm = TRUE),
+    large_revision_pct = abs_revision_pct > 1,  # Over 1% revision
+    
+    # Convert to character for infer package (required)
+    post_2020_char = if_else(post_2020, "Post-2020", "Pre-2020"),
+    post_2000_char = if_else(post_2000, "Post-2000", "Pre-2000")
+  )
+```
+
+### Test 1 - Comparing Average Revision Size Before and After 2020
+Some people say that CES revisions have gotten bigger recently. This test checks if the average size of revisions after 2020 is really different from the average in the years before 2020.
+
+
+```{r}
+# Two-sample t-test: Is average absolute revision larger post-2020?
+test1_result <- ces_test_data |>
+  mutate(abs_revision = abs(revision)) |>
+  t_test(
+    abs_revision ~ post_2020_char,
+    order = c("Post-2020", "Pre-2020"),
+    alternative = "two.sided"
+  )
+
+# Calculate descriptive statistics
+test1_descriptive <- ces_test_data |>
+  mutate(abs_revision = abs(revision)) |>
+  group_by(post_2020_char) |>
+  summarize(
+    N = n(),
+    Mean = mean(abs_revision, na.rm = TRUE),
+    Median = median(abs_revision, na.rm = TRUE),
+    SD = sd(abs_revision, na.rm = TRUE)
+  )
+
+# Combine test results with descriptives
+test1_display <- test1_result |>
+  select(`Test Statistic` = statistic, 
+         `P-value` = p_value, 
+         `Estimated Difference` = estimate,
+         `95% CI Lower` = lower_ci,
+         `95% CI Upper` = upper_ci)
+
+test1_display |>
+  kable(caption = "Test 1: Two-Sample t-test - Average Absolute Revision Post-2020 vs Pre-2020",
+        digits = 3) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkblue")
+```
+
+```{r}
+test1_descriptive |>
+  kable(caption = "Descriptive Statistics by Period",
+        digits = 2,
+        col.names = c("Period", "N", "Mean", "Median", "Std Dev")) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkblue")
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Answer**: The average absolute revision after 2020 is 37,000 jobs, compared to 30,700 jobs before 2020. This gives a difference of about 6,300 jobs. However, the p-value of 0.52 shows that this difference is not statistically significant at the 5% level. This means we do not have strong evidence to say that revisions have really changed between these periods, so the observed difference could just be due to random variation in the data.
+:::
+
+### Test 2 - Proportion of Negative Revisions – Post-2000 vs Pre-2000
+There are claims that revisions might be biased more in one direction in recent years. This test examines whether the share of negative revisions has changed since the year 2000, comparing the proportion of downward adjustments in employment estimates before and after that year.
+
+```{r}
+# Proportion test: Is the fraction of negative revisions different post-2000?
+test2_result <- ces_test_data |>
+  prop_test(
+    is_negative ~ post_2000_char,
+    order = c("Post-2000", "Pre-2000"),
+    alternative = "two.sided"
+  )
+
+# Calculate actual proportions
+test2_proportions <- ces_test_data |>
+  group_by(post_2000_char) |>
+  summarize(
+    N = n(),
+    Negative = sum(is_negative),
+    Positive = sum(is_positive),
+    `% Negative` = (sum(is_negative) / n()) * 100,
+    `% Positive` = (sum(is_positive) / n()) * 100
+  )
+
+# Format test results
+test2_display <- test2_result |>
+  select(`Test Statistic` = statistic,
+         `P-value` = p_value,
+         `95% CI Lower` = lower_ci,
+         `95% CI Upper` = upper_ci)
+
+test2_display |>
+  kable(caption = "Test 2: Proportion Test - Negative Revisions Post-2000 vs Pre-2000",
+        digits = 3) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkgreen")
+```
+
+```{r}
+test2_proportions |>
+  kable(caption = "Revision Direction by Period",
+        digits = 1,
+        col.names = c("Period", "N", "Negative", "Positive", "% Negative", "% Positive")) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkgreen")
+
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid green; padding:10px;"}
+**Answer:** After the year 2000, about 46.2% of employment revisions were negative, whereas before 2000 this proportion was 23.8%. The p-value for this comparison is 0.201, which is above the 0.05 threshold. Therefore, we do not reject the null hypothesis at the 5% significance level.
+
+This result suggests that there is no strong statistical evidence to indicate a clear shift or systematic increase in the proportion of negative revisions over time. The data do not support the claim that revisions have become consistently biased in a particular direction.
+:::
+
+### Test 3 - has the fraction of revisions of more than 1% increased post-2020?
+
+Some analysts suggest that bigger revisions, measured as a percentage of total employment, are happening more often in recent years. This test examines whether revisions exceeding 1% of the total employment level occur more frequently after 2020 compared to earlier periods.
+
+```{r}
+# Proportion test: Are large revisions (>1%) more common post-2020?
+test3_result <- ces_test_data |>
+  filter(!is.na(large_revision_pct)) |>
+  prop_test(
+    large_revision_pct ~ post_2020_char,
+    order = c("Post-2020", "Pre-2020"),
+    alternative = "greater"  # One-sided test
+  )
+
+# Calculate actual proportions
+test3_proportions <- ces_test_data |>
+  filter(!is.na(large_revision_pct)) |>
+  group_by(post_2020_char) |>
+  summarize(
+    N = n(),
+    `Large Revisions (>1%)` = sum(large_revision_pct),
+    `% Large` = (sum(large_revision_pct) / n()) * 100
+  )
+
+# Format test results
+test3_display <- test3_result |>
+  select(`Test Statistic` = statistic,
+         `P-value` = p_value,
+         `Lower 95% CI` = lower_ci)
+
+test3_display |>
+  kable(caption = "Test 3: One-Sided Proportion Test - Large Revisions Post-2020 vs Pre-2020",
+        digits = 3) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "purple")
+```
+
+```{r}
+test3_proportions |>
+  kable(caption = "Frequency of Large Revisions by Period",
+        digits = 1,
+        col.names = c("Period", "N", "Large Revisions", "% Large")) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "purple")
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid purple; padding:10px;"}
+**Answer:** After 2020, all revisions (100%) exceeded 1% of total employment, compared to 95.1% in the years before 2020. Using a one-sided test to see if post-2020 revisions are more frequent, we find a p-value of 0.5. This means we do not have enough evidence to reject the null hypothesis. There is no strong statistical support for the idea that large revisions happen more often in recent years.
+:::
+
+### Test 4 - Is the average revision significantly different from zero?
+
+```{r}
+# One-sample t-test: Is the average revision significantly different from zero?
+test4_result <- t.test(ces_test_data$revision, mu = 0, alternative = "two.sided")
+
+# Create formatted results table
+test4_display <- data.frame(
+  `Mean Revision` = mean(ces_test_data$revision, na.rm = TRUE),
+  `t-statistic` = test4_result$statistic,
+  `P-value` = test4_result$p.value,
+  `95% CI Lower` = test4_result$conf.int[1],
+  `95% CI Upper` = test4_result$conf.int[2]
+)
+
+test4_display |>
+  kable(caption = "Test 4: One-Sample t-test - Average Revision vs Zero (Testing for Bias)",
+        digits = 3,
+        col.names = c("Mean Revision", "t-statistic", "P-value", "95% CI Lower", "95% CI Upper")) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkred")
+```
+
+```{r}
+# Additional context
+overall_stats <- ces_test_data |>
+  summarize(
+    N = n(),
+    `Mean Revision` = mean(revision),
+    `Median Revision` = median(revision),
+    `Positive Revisions` = sum(revision > 0),
+    `Negative Revisions` = sum(revision < 0),
+    `% Positive` = (sum(revision > 0) / n()) * 100
+  )
+
+overall_stats |>
+  kable(caption = "Overall Revision Statistics (All Years)",
+        digits = 2) |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkred")
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #8B0000; padding:10px;"}
+**Answer**
+Across all years, the average revision is about 10.85 thousand jobs, and the p-value is 0.0519. Since this is above the 5% significance level, we cannot reject the null hypothesis that the mean revision is zero.
+
+This indicates that the BLS initial estimates do not show a clear tendency to consistently overestimate or underestimate employment. There is no strong evidence of a directional bias in their reporting.
+:::
+
+**Summary of Tests**
+```{r}
+# Create comprehensive summary table
+test_summary <- data.frame(
+  Test = c(
+    "Average Revision: Post-2020 vs Pre-2020",
+    "Proportion Negative: Post-2000 vs Pre-2000",
+    "Large Revisions (>1%): Post-2020 vs Pre-2020",
+    "Systematic Bias: Mean vs Zero"
+  ),
+  `Test Type` = c(
+    "Two-sample t-test",
+    "Two-proportion test",
+    "One-sided proportion test",
+    "One-sample t-test"
+  ),
+  `Test Statistic` = c(
+    round(test1_result$statistic, 3),
+    round(test2_result$statistic, 3),
+    round(test3_result$statistic, 3),
+    round(test4_result$statistic, 3)
+  ),
+  `P-value` = c(
+    round(test1_result$p_value, 4),
+    round(test2_result$p_value, 4),
+    round(test3_result$p_value, 4),
+    round(test4_result$p.value, 4)
+  ),
+  `Significant?` = c(
+    ifelse(test1_result$p_value < 0.05, "Yes", "No"),
+    ifelse(test2_result$p_value < 0.05, "Yes", "No"),
+    ifelse(test3_result$p_value < 0.05, "Yes", "No"),
+    ifelse(test4_result$p.value < 0.05, "Yes", "No")
+  )
+)
+
+test_summary |>
+  kable(caption = "Summary of All Statistical Hypothesis Tests (α = 0.05)",
+        col.names = c("Test", "Type", "Statistic", "P-value", "Significant?")) |>
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) |>
+  row_spec(0, bold = TRUE, color = "white", background = "darkblue") |>
+  column_spec(5, bold = TRUE, 
+              color = ifelse(test_summary$Significant. == "Yes", "green", "red"))
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+
+**Key Takeaways** 
+
+- After doing the four tests, we can see some interesting points:
+
+- Revision Size (After 2020): The average size of revisions does not show any strong change after 2020. It seems that the revisions are not bigger in recent years.
+
+- Direction of Revisions (After 2000): The proportion of negative versus positive revisions has not really changed since 2000. There is no clear bias to one direction.
+
+- Very Large Revisions: Revisions over 1% of total employment are not more common now than before. The data does not show an increase in these big changes.
+
+Overall Bias: Looking at the full 45 years, BLS estimates do not have clear systematic bias. They do not consistently overestimate or underestimate employment.
+:::
+
+
+##  Task 5: Fact-Check of Claims About BLS
+
+### 5.1 Fact Check #1
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+
+**Claim:**
+“BLS revisions have gotten much bigger since 2020.”
+
+**Source:** Public commentary on labor statistics, 2023
+
+**Politifact Rating:** MOSTLY FALSE
+
+**Analysis:**
+This claim may sound believable because the labor market was very volatile after COVID, but when reviewing the historical data, the story is less dramatic than the statement implies. Some months after 2020 show noticeable changes, yet overall revision behavior has not shifted in a statistically meaningful way.
+
+**What the Data Actually Shows:**
+
+1. No significant increase in revision size
+Revision Magnitude Test
+A two-sample test comparing absolute revisions before and after 2020 finds no statistically significant difference. While the post-2020 period may look unstable, the variation falls within normal historical patterns.
+
+2. Revisions still move in both directions
+Direction Test
+Positive and negative revisions continue to occur at roughly equal rates, with no evidence that downward revisions dominate recent years.
+
+3. Revisions remain centered around zero
+Distribution Plot
+The histogram of revisions shows a tight, fairly symmetric distribution around zero, suggesting no persistent over- or underestimation.
+
+Statistical testing confirms stability:
+The hypothesis test for the mean revision does not reject the null that the true average is zero (p > 0.05), indicating no detectable bias.
+
+**Verdict:**
+The claim highlights isolated months with large revisions, but historical evidence does not support the idea that revisions have systematically increased since 2020. These changes fit within normal statistical variation rather than forming a new pattern.
+:::
+
+```{r}
+# -------------------------------
+# 1. Load packages
+# -------------------------------
+library(readr)
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+# -------------------------------
+# 2. Read and clean CES data
+# -------------------------------
+# Replace the filename with your CSV path
+ces_df <- read_csv("SeriesReport-20251126184837_8a7cd7.csv", skip = 11)
+
+# Clean dataset: remove any extra header row and convert columns
+ces_clean <- ces_df %>%
+  filter(...1 != "Year") %>%          # remove header row if it was read as data
+  mutate(
+    Year = as.numeric(...1),
+    across(...2:...13, as.numeric)   # convert month columns to numeric
+  )
+
+# -------------------------------
+# 3. Pivot to long format
+# -------------------------------
+ces_long <- ces_clean %>%
+  pivot_longer(
+    cols = ...2:...13,
+    names_to = "Month",
+    values_to = "Revision"
+  ) %>%
+  mutate(
+    Period = if_else(Year >= 2020, "Post-2020", "Pre-2020")
+  )
+
+# -------------------------------
+# 4. Summary table: Absolute revisions Pre/Post 2020
+# -------------------------------
+revision_summary <- ces_long %>%
+  group_by(Period) %>%
+  summarize(
+    mean_revision = mean(Revision, na.rm = TRUE),
+    median_revision = median(Revision, na.rm = TRUE),
+    sd_revision = sd(Revision, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Print nicely
+revision_summary %>%
+  kable(caption = "CES Absolute Revisions Summary: Pre vs Post 2020")
+
+
+```
+
+### 5.2 Fact Check #2
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Claim:**
+“The BLS usually underestimates job growth in the first release, and revisions are almost always upward.”
+
+**Source:** Media commentary on economic reporting, 2022
+
+**Politifact Rating:** FALSE
+
+**Analysis:**
+This statement assumes a consistent upward bias, but the data does not confirm this. While the mean revision is slightly positive, it is not strong enough to be considered systematic. The claim exaggerates normal revisions and treats them as a long-term pattern.
+
+**What the Data Actually Shows:**
+
+1. No consistent upward correction
+Mean Revision Test
+The average revision in the dataset is slightly positive, but the p-value (0.0519) is above the significance threshold. The BLS does not consistently underestimate job growth.
+
+2. Revision frequency is balanced
+Direction Analysis
+Across the full dataset, negative revisions happen almost as often as positive ones, showing no reliable pattern of upward-only adjustments.
+
+3. Large revisions remain rare
+Outlier Analysis
+Revisions exceeding 1% of total employment barely occur, even in recent years, indicating a stable process.
+
+4. Economic conditions explain volatility better than bias
+Context Interpretation
+Periods like 2020–2021 had bigger swings because of the economy itself, not because of BLS methodology.
+
+Verdict:
+There is no statistical evidence that the BLS usually underestimates job growth. Revisions reflect normal measurement adjustments, not systematic bias.
+:::
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+# Pivot your CES data to long format first (replace ces_clean with your cleaned dataset)
+ces_long <- ces_clean %>%
+  pivot_longer(cols = ...2:...13, names_to = "Month", values_to = "Revision")
+
+# Create table of revision directions
+revision_direction <- ces_long %>%
+  mutate(Direction = case_when(
+    Revision > 0 ~ "Positive",
+    Revision < 0 ~ "Negative",
+    TRUE ~ "Zero"
+  )) %>%
+  group_by(Direction) %>%
+  summarize(Count = n(), .groups = "drop") %>%
+  mutate(Percent = round(Count / sum(Count) * 100, 1))
+
+# Print table nicely
+revision_direction %>%
+  kable(caption = "CES Revision Directions")
+
+```
+
+
+
