@@ -1,0 +1,459 @@
+---
+title: "Final Individual Summary"
+author: "Eveline Lindqvist Nilsson"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+format:
+  html:
+    theme: readable
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+editor: visual
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+```{r, echo=FALSE, out.width="100%", fig.align="center"}
+knitr::include_graphics("~/Documents/GitHub/STA9750-2025-FALL/kidinthesun.jpg")
+
+
+```
+
+
+
+###  Introduction
+
+This report studies the relationship between climate and happiness. The main question is whether people who live in warmer countries are happier. Many people believe that warm weather and sunshine improve well being. However, happiness depends on many factors, such as income, health, social support, and government policies. Because of this, climate alone may not fully explain why some countries are happier than others.
+
+
+In this analysis, I compare national happiness scores with average annual temperature across countries. Countries are grouped into three climate categories. Cold countries have an average temperature below about 10 degrees Celsius. Moderate countries have temperatures between 10 and 20 degrees Celsius. Warm countries have temperatures above 20 to 25 degrees Celsius. This grouping helps to identify general patterns and also shows important exceptions.
+
+
+
+The goal of this report is to understand whether warmer countries are happier on average and whether very cold or very hot climates are linked to lower happiness. This individual report supports the group project by focusing on environmental factors instead of economic or political factors. Together, these analyses help explain what makes countries happier.
+
+
+###  Data Acquisition
+
+The happiness data comes from the World Happiness Report and covers the years from 2019 to 2025. This dataset includes national life satisfaction scores based on surveys where people rate their overall life satisfaction on a scale from 0 to 10. The World Happiness Report is widely used and is considered a reliable measure of happiness across countries.
+
+
+The climate data comes from the World Bank Climate Data and includes country level temperature information. To measure climate, I use average annual temperature. This reflects long term climate conditions rather than short term weather changes.
+
+
+Both datasets were downloaded as CSV files and saved in the project folder. They were loaded using relative file paths so that the analysis can be reproduced on another computer. The two datasets were merged by country name to create one dataset that includes both happiness scores and temperature values.
+
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+### **Get dataset for happiness ranking 2019-2025**
+
+World Happiness Report
+- [World Happiness Report](https://www.worldhappiness.report/)
+
+World Bank Climate Data Maximum Temperature
+- [World Bank Max Temperature Data](https://data360.worldbank.org/en/indicator/WB_CCKP_TASMAX?view=datatable)
+
+World Bank Climate Data Minimum Temperature
+- [World Bank Min Temperature Data](https)
+
+The maximum and minimum temperature datasets were combined to estimate the average annual temperature for each country.
+:::
+
+###  Two datasets were used for this analysis:
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Happiness data** from the World Happiness Report (2019–2025), which includes national life satisfaction scores and related factors.
+::: 
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Average annual temperature** by country from a publicly available climate dataset.
+::: 
+
+Both datasets were stored as CSV files in the project folder and loaded using relative paths to ensure reproducibility. The two datasets were merged by country, creating a unified dataset containing both temperature and happiness scores for analysis.
+
+---
+
+
+
+###  Data Cleaning and Preparation
+
+Before starting the analysis, the data needed to be cleaned and prepared. First, the happiness data was limited to the years 2019 to 2025 so it matched the available climate data. Countries with missing happiness scores or missing temperature values were removed.
+
+
+Country names were checked and adjusted so they matched across both datasets. After merging the datasets by country, I reviewed summary statistics and basic plots to check for unusual values or data errors.
+
+
+To make the analysis easier to understand, countries were grouped into three climate categories. These categories are cold, moderate, and warm, based on their average annual temperature. This allows for clearer comparison of happiness levels across different climate types.
+
+---
+
+
+###  Data Sources
+For this analysis, we used several trusted global datasets, including the World Happiness Report, the World Bank, OECD, and Our World in Data. These sources give information about national happiness, economic conditions, social support, and environmental factors. The happiness scores are mostly self-reported, which means people rate how satisfied they feel with their lives. This makes the data subjective, but it still gives a good overall picture of well-being across countries. 
+
+The temperature data comes from historical climate records, giving average annual temperatures for each country. The combination of these datasets allows us to compare environmental conditions with how happy people are. One strength of this approach is that we can look at many countries over multiple years, which gives a broader perspective. However, some data is missing for certain countries or years, and happiness is influenced by many other factors besides climate. Therefore, our results should be interpreted carefully.
+
+
+---
+
+
+###  Research Question
+
+The main question in this report is whether people living in warmer countries are happier. Many people think that sunshine and warmth make life better, but happiness is influenced by many social, economic, and environmental factors. To investigate this, we compared countries in three temperature categories: cold, moderate, and warm. Cold countries are those with average annual temperatures below about 10 degrees Celsius. Moderate countries have temperatures between 10 and 20 degrees, and warm countries have temperatures between 25 and 30 degrees. We used several plots to examine the relationship between temperature and happiness and to see if climate alone can explain differences in happiness across countries.
+
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(tidyr)  
+library(readr)
+
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+
+# Load the CSV
+temperature <- read_csv("~/Downloads/Happiness_Project/temperature.csv", show_col_types = FALSE)
+
+
+# Replace any weird characters in the column names
+names(temperature) <- names(temperature) %>% 
+  trimws() %>%            # remove leading/trailing spaces
+  gsub("\u00A0", "", .)   # remove non-breaking spaces (common hidden char)
+
+# Now see the names again
+names(temperature)
+
+# Find the column that contains the country names
+grep("name", names(temperature), value = TRUE)  
+
+# Suppose the result is "name" (or similar), then rename safely:
+temperature <- temperature %>% rename(Country = !!sym(grep("name", names(temperature), value = TRUE)))
+
+# Now pivot_longer works
+temperature_avg <- temperature %>%
+  pivot_longer(
+    cols = -c(code, Country),
+    names_to = "Year",
+    values_to = "Temp"
+  ) %>%
+  group_by(Country) %>%
+  summarise(AvgTemp = mean(Temp, na.rm = TRUE))
+
+
+
+```
+
+
+```{r, echo=TRUE, results='hide'}
+library(dplyr)
+library(tidyr)
+
+# Pivot to long format and calculate average temperature per country
+temperature_avg <- temperature %>%
+  pivot_longer(
+    cols = -c(code, Country),    # keep code and Country as-is
+    names_to = "Year",
+    values_to = "Temp"
+  ) %>%
+  group_by(Country) %>%
+  summarise(AvgTemp = mean(Temp, na.rm = TRUE))
+
+```
+
+
+```{r check-temperature,echo=FALSE}
+library(readr)
+
+temperature <- read_csv(
+  "~/Downloads/Happiness_Project/temperature.csv",
+  show_col_types = FALSE
+)
+
+names(temperature)
+```
+
+```{r, echo=TRUE, results='hide'}
+names(temperature)
+grep("name", names(temperature))
+head(temperature)
+```
+
+```{r load-temperature, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(readr)
+
+temperature <- read_csv(
+  "~/Downloads/Happiness_Project/temperature.csv",
+  show_col_types = FALSE
+)
+
+temperature <- temperature %>%
+  rename(Country = name)
+
+temperature_avg <- temperature %>%
+  pivot_longer(
+    cols = -c(code, Country),
+    names_to = "Year",
+    values_to = "Temp"
+  ) %>%
+  group_by(Country) %>%
+  summarise(AvgTemp = mean(Temp, na.rm = TRUE))
+```
+
+```{r load-happiness, message=FALSE, warning=FALSE}
+library(readxl)
+library(dplyr)
+
+# Load happiness data
+h2024 <- read_excel("~/Downloads/Happiness_Project/WHR25_Data_Figure_2.1v3.xlsx")
+
+# Keep only what we need and rename clearly
+happiness_2024 <- h2024 %>%
+  select(`Country name`, `Life evaluation (3-year average)`) %>%
+  rename(
+    Country = `Country name`,
+    Happiness = `Life evaluation (3-year average)`
+  )
+
+
+```
+
+**Step 1: Temperature and Happiness Across All Countries**
+
+
+The first analysis looks at all countries together, plotting average annual temperature against happiness scores. From this plot, we notice an interesting pattern,that many of the happiest countries are cold countries, often below 10 degrees Celsius. These include Nordic countries like Norway and Iceland. On the other hand, very warm countries, with average temperatures around 25 to 30 degrees, tend to have lower happiness scores. Countries with moderate temperatures show a wide range of happiness values, and there is no clear trend in one direction. This suggests that temperature alone does not explain happiness. The plot also shows that extremely warm or extremely cold countries are fewer in number, which makes their effect on the overall pattern smaller.
+
+
+
+```{r plot-happiness-temp, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+
+# Merge datasets by Country
+happiness_temp <- happiness_2024 %>%
+  inner_join(temperature_avg, by = "Country")
+
+
+# Scatter plot
+ggplot(happiness_temp, aes(x = AvgTemp, y = Happiness)) +
+  geom_point(color = "steelblue", size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(
+    title = "Happiness vs Average Temperature (2024)",
+    x = "Average Annual Temperature (°C)",
+    y = "Happiness (Life Evaluation Score)"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Key Finding**
+
+
+- Happiest countries are often cold (e.g., Norway, Iceland).
+- Very warm countries tend to have lower happiness.
+- Moderate temperature countries show mixed happiness.
+- Temperature alone is not a strong predictor.
+:::
+---
+
+
+**Step 2: Distribution of Temperature and Happiness**
+
+The next step was to look at the distributions of temperature and happiness separately. One plot shows how many countries fall into each temperature range. Most countries are in the moderate climate range, around 10 to 20 degrees. Another plot shows the distribution of happiness scores. Most countries have happiness scores between 4 and 7, with very few countries above 7 or below 4. These distributions show why the overall relationship between temperature and happiness is weak. There are extremely happy and unhappy countries at different temperature levels, which means that other factors, such as income, social support, and governance, play a stronger role than temperature.
+
+
+```{r climate-categories-plot, message=FALSE, warning=FALSE}
+# Categorize countries
+happiness_temp <- happiness_temp %>%
+  mutate(
+    Climate = case_when(
+      AvgTemp < 10 ~ "Cold",
+      AvgTemp >= 10 & AvgTemp <= 20 ~ "Moderate",
+      AvgTemp > 20 ~ "Warm"
+    )
+  )
+
+# Check categories
+table(happiness_temp$Climate)
+
+# Boxplot of Happiness by Climate
+ggplot(happiness_temp, aes(x = Climate, y = Happiness, fill = Climate)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("Cold" = "skyblue", "Moderate" = "lightgreen", "Warm" = "orange")) +
+  labs(
+    title = "Happiness Scores by Climate Category",
+    x = "Climate Category",
+    y = "Happiness (Life Evaluation Score)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Key Finding**
+
+
+- Most countries are moderate (10–20°C).
+- Most countries have happiness scores 4–7.
+- Extreme happiness or unhappiness is rare.
+- Other factors (income, health, social support) are more important than temperature.
+:::
+---
+
+**Step 3: Comparing the Warmest Countries**
+
+To explore further, we created a plot for the five warmest countries. These countries have average temperatures close to 28 degrees. The plot shows that these countries generally have lower happiness scores. For example, Burkina Faso and Mali have temperatures around 28 degrees, but their happiness scores are around 4 to 5. However, it is important to remember that these countries also face challenges like lower economic development, weaker healthcare systems, and limited social support. This means that low happiness is likely caused by many social and economic factors, not just temperature. The plot helps us see how temperature alone is not a strong predictor of happiness.
+
+---
+
+
+**Step 4: Comparing the Coldest Countries**
+
+Next, we created a plot for the five coldest countries, with average temperatures between minus 5 and 1.5 degrees Celsius. Many of these countries, like Iceland and Norway, have high happiness scores. Even very cold countries like Russia and Canada show medium happiness scores, around 5 to 6. The plot shows that cold temperatures do not prevent high happiness. It also highlights that cold countries often have strong economies, good healthcare, and strong social support, which likely contribute to their happiness. This comparison with warm countries strengthens the conclusion that climate alone does not determine happiness.
+
+
+```{r extreme-countries-plot, message=FALSE, warning=FALSE}
+# Warmest countries (top 5)
+warmest <- happiness_temp %>% 
+  arrange(desc(AvgTemp)) %>% 
+  slice(1:5)
+
+# Coldest countries (bottom 5)
+coldest <- happiness_temp %>% 
+  arrange(AvgTemp) %>% 
+  slice(1:5)
+
+# Plot warmest countries
+p1 <- ggplot(warmest, aes(x = reorder(Country, AvgTemp), y = Happiness, fill = Happiness)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "orange", high = "red") +
+  labs(title = "Happiness in the 5 Warmest Countries", x = "", y = "Happiness") +
+  theme_minimal(base_size = 14)
+
+# Plot coldest countries
+p2 <- ggplot(coldest, aes(x = reorder(Country, -AvgTemp), y = Happiness, fill = Happiness)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(title = "Happiness in the 5 Coldest Countries", x = "", y = "Happiness") +
+  theme_minimal(base_size = 14)
+
+# Show plots
+library(patchwork)
+p1 / p2
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Step 3: Key Finding**
+
+
+- Five warmest countries (~28°C) usually have lower happiness.
+- Low happiness is affected by economic and social problems, not just heat.
+:::
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Step 4: Key Finding**
+
+
+- Five coldest countries (-5 to 1.5°C) can be very happy.
+- Cold does not stop happiness.
+- Strong economy, healthcare, and social support help people be happy.
+:::
+---
+
+**Step 5: Distribution Of Happiness Score**
+
+The distribution of happiness scores in 2024 shows that most countries have a moderate level of happiness. Scores are mostly between 4 and 7, which means that very few countries are extremely unhappy or extremely happy. A few countries reach above 7, showing very high happiness, and a few are below 4, showing very low happiness. This pattern suggests that most people around the world feel a similar level of life satisfaction, and extreme experiences are rare. The distribution is roughly balanced, with a slight tendency for more countries to fall in the middle range. Overall, this tells us that happiness varies, but most countries are in the moderate zone, and very high or very low happiness is unusual.
+
+```{r}
+library(ggplot2)
+
+# Histogram of average temperature by country
+ggplot(happiness_temp, aes(x = AvgTemp)) +
+  geom_histogram(
+    binwidth = 2,       # change bin width as needed
+    fill = "skyblue",
+    color = "black"
+  ) +
+  labs(
+    title = "Distribution of Average Temperature by Country",
+    x = "Average Temperature (°C)",
+    y = "Number of Countries"
+  ) +
+  theme_minimal()
+
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Key Finding**
+
+
+- Most countries have moderate happiness (4–7).
+- Very few countries are extremely happy (>7) or unhappy (<4).
+:::
+---
+
+**Step 6: Distribution Of Happiness Scores By Country**
+
+In 2024, the happiness scores of countries show a clear pattern. Most countries have scores between 4 and 7, which means that the majority of people in the world feel a moderate level of life satisfaction. Only a few countries are very happy, with scores above 7, and a few are very unhappy, with scores below 4. This shows that extreme happiness or extreme unhappiness is rare. The distribution also tells us that happiness is not evenly spread; most countries are in the middle range, and there are fewer countries at the very low or very high ends. By looking at the scores by country, we can see which countries are happier and which are less happy in comparison.
+
+
+
+```{r}
+library(ggplot2)
+
+# Histogram of Happiness scores
+ggplot(happiness_temp, aes(x = Happiness)) +
+  geom_histogram(
+    binwidth = 0.5,     # adjust bin width if needed
+    fill = "lightgreen",
+    color = "black"
+  ) +
+  labs(
+    title = "Distribution of Happiness Scores by Country",
+    x = "Happiness Score",
+    y = "Number of Countries"
+  ) +
+  theme_minimal()
+```
+
+::: {.callout icon=false style="background-color:#f5f5f5; border-left: 4px solid #00008B; padding:10px;"}
+**Key Finding**
+
+
+- Majority of countries are moderately happy.
+- Extreme happiness or unhappiness is rare.
+- Most people are in the middle happiness range.
+:::
+---
+
+
+**Conclusion**
+
+This analysis shows that temperature alone does not strongly determine how happy a country is. Warm countries are not always happier, and cold countries are not always less happy. Countries with moderate temperatures show a wide range of happiness scores, which means that other factors, like income, healthcare, social support, education, freedom, and good governance, play a much stronger role than climate. Temperature may have a small influence, but it is only one piece of a complex picture.
+
+For example, many cold countries, such as Norway, Iceland, and Finland, have very high happiness scores, even though their climates are harsh. These countries often have strong economies, excellent healthcare, and good social support systems, which help people feel safe and satisfied with life. On the other hand, some warm countries, like Burkina Faso or Mali, have lower happiness scores despite having pleasant weather, largely because of economic challenges, limited access to education and healthcare, and weaker governance. This shows that climate alone cannot explain why people are happy or unhappy.
+
+It is also important to remember that happiness is subjective and influenced by culture, personal values, and expectations. The data in this study comes from surveys, which means that people report their own feelings of satisfaction. While this is valuable, it may not capture all aspects of well-being. Furthermore, temperature is just one part of the climate. Other factors, such as rainfall, natural disasters, and seasonal changes, may also affect how people feel about their lives.
+
+Future research could combine climate data with economic, social, and health indicators to better understand the full range of factors that affect happiness. Researchers could also investigate how climate change, urbanization, and global migration may influence happiness in the future. Overall, happiness is shaped by many interacting factors, and while climate can play a small role, it is clear that economic stability, social support, and good governance are far more important for national well-being.
+
+
+**Thank you, **
+
+**Eveline**
